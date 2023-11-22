@@ -6,7 +6,7 @@ use super::{
 use async_trait::async_trait;
 use aws_config::SdkConfig;
 use aws_sdk_dynamodb::Client as DbClient;
-use aws_sdk_dynamodbstreams::{Client as StreamsClient, types::ShardIteratorType};
+use aws_sdk_dynamodbstreams::{types::ShardIteratorType, Client as StreamsClient};
 
 #[derive(Debug, Clone)]
 pub struct Client {
@@ -17,8 +17,8 @@ pub struct Client {
 impl Client {
     pub fn new(config: &SdkConfig) -> Self {
         Self {
-            db: DbClient::new(&config),
-            streams: StreamsClient::new(&config),
+            db: DbClient::new(config),
+            streams: StreamsClient::new(config),
         }
     }
 }
@@ -26,10 +26,7 @@ impl Client {
 #[async_trait]
 pub trait DynamodbClient: Clone + Send + Sync {
     /// Return LatestStreamArn from Dynamodb table description.
-    async fn get_stream_arn(
-        &self,
-        table_name: impl Into<String> + Send,
-    ) -> Result<String, Error>;
+    async fn get_stream_arn(&self, table_name: impl Into<String> + Send) -> Result<String, Error>;
 
     /// Return shards and next shard id from Dynamodb Stream description.
     async fn get_shards(
@@ -47,18 +44,12 @@ pub trait DynamodbClient: Clone + Send + Sync {
     ) -> Result<Shard, Error>;
 
     /// Return records from shard.
-    async fn get_records(
-        &self,
-        shard: Shard,
-    ) -> Result<GetRecordsOutput, Error>;
+    async fn get_records(&self, shard: Shard) -> Result<GetRecordsOutput, Error>;
 }
 
 #[async_trait]
 impl DynamodbClient for Client {
-    async fn get_stream_arn(
-        &self,
-        table_name: impl Into<String> + Send,
-    ) -> Result<String, Error> {
+    async fn get_stream_arn(&self, table_name: impl Into<String> + Send) -> Result<String, Error> {
         let table_name: String = table_name.into();
 
         self.db
@@ -110,7 +101,8 @@ impl DynamodbClient for Client {
         shard: Shard,
         shard_iterator_type: ShardIteratorType,
     ) -> Result<Shard, Error> {
-        let iterator = self.streams
+        let iterator = self
+            .streams
             .get_shard_iterator()
             .stream_arn(stream_arn)
             .shard_id(shard.id())
@@ -123,10 +115,7 @@ impl DynamodbClient for Client {
         Ok(shard.set_iterator(iterator))
     }
 
-    async fn get_records(
-        &self,
-        shard: Shard,
-    ) -> Result<GetRecordsOutput, Error> {
+    async fn get_records(&self, shard: Shard) -> Result<GetRecordsOutput, Error> {
         let iterator = shard.iterator().map(|val| val.to_string());
 
         self.streams
@@ -139,10 +128,7 @@ impl DynamodbClient for Client {
                 let shard = shard.set_iterator(output.next_shard_iterator);
                 let records = output.records.unwrap_or_default();
 
-                GetRecordsOutput {
-                    shard,
-                    records,
-                }
+                GetRecordsOutput { shard, records }
             })
     }
 }

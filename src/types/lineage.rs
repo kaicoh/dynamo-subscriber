@@ -3,7 +3,7 @@ use super::Shard;
 
 use async_recursion::async_recursion;
 use aws_sdk_dynamodbstreams::types::Record;
-use std::cmp;
+use std::{cmp, sync::Arc};
 use tokio::sync::mpsc::{self, Sender};
 use tracing::error;
 
@@ -66,9 +66,12 @@ impl Lineage {
     }
 
     #[async_recursion]
-    async fn get_records<Client>(self, client: Client, tx: Sender<(Option<Shard>, Vec<Record>)>)
-    where
-        Client: DynamodbClient + 'static
+    async fn get_records<Client>(
+        self,
+        client: Arc<Client>,
+        tx: Sender<(Option<Shard>, Vec<Record>)>,
+    ) where
+        Client: DynamodbClient + 'static,
     {
         let Lineage { shard, children } = self;
 
@@ -87,7 +90,7 @@ impl Lineage {
 
         for child in children {
             let tx = tx.clone();
-            let client = client.clone();
+            let client = Arc::clone(&client);
 
             tokio::spawn(async move {
                 child.get_records(client, tx).await;
@@ -122,7 +125,7 @@ impl Lineages {
         Self(lineages)
     }
 
-    async fn get_records<Client>(self, client: Client) -> (Vec<Shard>, Vec<Record>)
+    pub async fn get_records<Client>(self, client: Arc<Client>) -> (Vec<Shard>, Vec<Record>)
     where
         Client: DynamodbClient + 'static,
     {
@@ -133,7 +136,7 @@ impl Lineages {
         let (tx, mut rx) = mpsc::channel::<(Option<Shard>, Vec<Record>)>(buf);
 
         for lineage in self.0 {
-            let client = client.clone();
+            let client = Arc::clone(&client);
             let tx = tx.clone();
 
             tokio::spawn(async move {

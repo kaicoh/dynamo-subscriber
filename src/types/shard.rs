@@ -35,9 +35,6 @@ impl Shard {
     }
 
     pub fn set_iterator(self, iterator: Option<String>) -> Self {
-        Self {
-            iterator,
-            ..self
-        }
+        Self { iterator, ..self }
     }
 }

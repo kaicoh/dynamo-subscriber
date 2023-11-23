@@ -1,7 +1,6 @@
-use super::super::{
-    client::DynamodbClient,
-    error::Error,
+use super::{
     types::{GetShardsOutput, Lineages, Shard},
+    DynamodbClient, Error,
 };
 
 use async_trait::async_trait;
@@ -17,7 +16,7 @@ use tokio::{
 use tracing::error;
 
 #[async_trait]
-pub trait Streaming<Client>: Send + Sync
+pub trait StreamProducer<Client>: Send + Sync
 where
     Client: DynamodbClient + 'static,
 {
@@ -27,13 +26,15 @@ where
 
     fn stream_arn(&self) -> &str;
 
-    fn set_stream_arn(&self, stream_arn: String);
+    fn set_stream_arn(&mut self, stream_arn: String);
 
     fn interval(&self) -> Option<&Duration>;
 
     fn shards(&mut self) -> Vec<Shard>;
 
     fn set_shards(&mut self, shards: Vec<Shard>);
+
+    fn shard_iterator_type(&self) -> ShardIteratorType;
 
     fn rx_close(&mut self) -> &mut Receiver<()>;
 
@@ -43,12 +44,14 @@ where
         !matches!(self.rx_close().try_recv(), Err(TryRecvError::Empty))
     }
 
-    async fn init(&mut self, shard_iterator_type: ShardIteratorType) -> Result<(), Error> {
+    async fn init(&mut self) -> Result<(), Error> {
         let stream_arn = self.client().get_stream_arn(self.table_name()).await?;
         self.set_stream_arn(stream_arn);
 
         let shards = self.get_all_shards().await?;
-        let shards = self.get_shard_iterators(shards, shard_iterator_type).await;
+        let shards = self
+            .get_shard_iterators(shards, self.shard_iterator_type())
+            .await;
 
         self.set_shards(shards);
         Ok(())
@@ -74,8 +77,8 @@ where
         Ok(records)
     }
 
-    async fn streaming(&mut self, shard_iterator_type: ShardIteratorType) {
-        if let Err(err) = self.init(shard_iterator_type).await {
+    async fn streaming(&mut self) {
+        if let Err(err) = self.init().await {
             error!(
                 "Unexpected error during initialization: {err}. Skip polling {} table.",
                 self.table_name(),

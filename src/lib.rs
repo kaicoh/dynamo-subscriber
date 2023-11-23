@@ -1,6 +1,6 @@
 mod client;
 mod error;
-mod stream;
+pub mod stream;
 mod types;
 
 pub use client::Client;

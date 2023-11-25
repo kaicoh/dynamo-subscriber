@@ -18,6 +18,8 @@ tracing = "0.1"
 
 [dev-dependencies]
 aws-credential-types = { version = "1.0.0", features = ["hardcoded-credentials"] }
+aws-smithy-runtime-api = "1.0.1"
+aws-smithy-types = "1.0.1"
 itertools = "0.12"
 tokio = { version = "1", features = ["macros"] }
 ulid = "1.1.0"

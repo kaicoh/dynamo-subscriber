@@ -6,7 +6,16 @@ use super::{
 use async_trait::async_trait;
 use aws_config::SdkConfig;
 use aws_sdk_dynamodb::Client as DbClient;
-use aws_sdk_dynamodbstreams::{types::ShardIteratorType, Client as StreamsClient};
+use aws_sdk_dynamodbstreams::{
+    error::SdkError,
+    operation::{
+        get_records::{GetRecordsError, GetRecordsOutput as SdkGetRecordsOutput},
+        get_shard_iterator::GetShardIteratorError,
+    },
+    types::ShardIteratorType,
+    Client as StreamsClient,
+};
+use tracing::warn;
 
 #[derive(Debug, Clone)]
 pub struct Client {
@@ -109,8 +118,8 @@ impl DynamodbClient for Client {
             .shard_iterator_type(shard_iterator_type)
             .send()
             .await
-            .map_err(|err| Error::SdkError(Box::new(err)))?
-            .shard_iterator;
+            .map(|output| output.shard_iterator)
+            .or_else(empty_iterator)?;
 
         Ok(shard.set_iterator(iterator))
     }
@@ -123,12 +132,122 @@ impl DynamodbClient for Client {
             .set_shard_iterator(iterator)
             .send()
             .await
-            .map_err(|err| Error::SdkError(Box::new(err)))
+            .or_else(empty_records)
             .map(|output| {
                 let shard = shard.set_iterator(output.next_shard_iterator);
                 let records = output.records.unwrap_or_default();
 
                 GetRecordsOutput { shard, records }
             })
+    }
+}
+
+fn empty_iterator(err: SdkError<GetShardIteratorError>) -> Result<Option<String>, Error> {
+    use GetShardIteratorError::*;
+
+    match err {
+        SdkError::ServiceError(e) => {
+            let e = e.into_err();
+            match e {
+                // Close shard if response is either ResourceNotFound or TrimmedDataAccess
+                ResourceNotFoundException(_) | TrimmedDataAccessException(_) => {
+                    warn!("GetShardIterator operation failed due to {e}");
+                    warn!("{:#?}", e);
+                    Ok(None)
+                }
+                _ => Err(Error::SdkError(Box::new(e))),
+            }
+        }
+        _ => Err(Error::SdkError(Box::new(err))),
+    }
+}
+
+fn empty_records(err: SdkError<GetRecordsError>) -> Result<SdkGetRecordsOutput, Error> {
+    use GetRecordsError::*;
+
+    match err {
+        SdkError::ServiceError(e) => {
+            let e = e.into_err();
+            match e {
+                // Close shard if response is one of ExpiredIterator, LimitExceeded
+                // ResourceNotFound and TrimmedDataAccess.
+                ExpiredIteratorException(_)
+                | LimitExceededException(_)
+                | ResourceNotFoundException(_)
+                | TrimmedDataAccessException(_) => {
+                    warn!("GetRecords operation failed due to {e}");
+                    warn!("{:#?}", e);
+                    Ok(SdkGetRecordsOutput::builder().build())
+                }
+                _ => Err(Error::SdkError(Box::new(e))),
+            }
+        }
+        _ => Err(Error::SdkError(Box::new(err))),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use aws_smithy_runtime_api::{
+        client::{orchestrator::HttpResponse, result::ServiceError},
+        http::StatusCode,
+    };
+    use aws_smithy_types::body::SdkBody;
+
+    #[test]
+    fn empty_iterator_converts_some_errors_to_ok() {
+        use aws_sdk_dynamodbstreams::types::error::*;
+
+        let e = ResourceNotFoundException::builder()
+            .message("error")
+            .build();
+        let err = service_error(GetShardIteratorError::ResourceNotFoundException(e));
+        assert!(empty_iterator(err).is_ok());
+
+        let e = InternalServerError::builder().message("error").build();
+        let err = service_error(GetShardIteratorError::InternalServerError(e));
+        assert!(empty_iterator(err).is_err());
+
+        let e = TrimmedDataAccessException::builder()
+            .message("error")
+            .build();
+        let err = service_error(GetShardIteratorError::TrimmedDataAccessException(e));
+        assert!(empty_iterator(err).is_ok());
+    }
+
+    #[test]
+    fn empty_records_converts_some_errors_to_ok() {
+        use aws_sdk_dynamodbstreams::types::error::*;
+
+        let e = ResourceNotFoundException::builder()
+            .message("error")
+            .build();
+        let err = service_error(GetRecordsError::ResourceNotFoundException(e));
+        assert!(empty_records(err).is_ok());
+
+        let e = InternalServerError::builder().message("error").build();
+        let err = service_error(GetRecordsError::InternalServerError(e));
+        assert!(empty_records(err).is_err());
+
+        let e = ExpiredIteratorException::builder().message("error").build();
+        let err = service_error(GetRecordsError::ExpiredIteratorException(e));
+        assert!(empty_records(err).is_ok());
+
+        let e = LimitExceededException::builder().message("error").build();
+        let err = service_error(GetRecordsError::LimitExceededException(e));
+        assert!(empty_records(err).is_ok());
+
+        let e = TrimmedDataAccessException::builder()
+            .message("error")
+            .build();
+        let err = service_error(GetRecordsError::TrimmedDataAccessException(e));
+        assert!(empty_records(err).is_ok());
+    }
+
+    fn service_error<E>(error: E) -> SdkError<E, HttpResponse> {
+        let resp = HttpResponse::new(StatusCode::try_from(400).unwrap(), SdkBody::empty());
+        let inner = ServiceError::builder().source(error).raw(resp).build();
+        SdkError::ServiceError(inner)
     }
 }

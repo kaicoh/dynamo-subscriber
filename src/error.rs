@@ -7,6 +7,8 @@ pub enum Error {
     NotFoundStream(String),
     #[error("not found dynamodb stream description from arn: {0}")]
     NotFoundStreamDescription(String),
+    #[error("disconnected stream channel: {0}")]
+    Disconnected(String),
     #[error("aws-sdk error: {0}")]
     SdkError(Box<dyn std::error::Error + Send + Sync + 'static>),
 }

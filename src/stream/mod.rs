@@ -5,5 +5,5 @@ pub mod watch;
 
 use super::{client::DynamodbClient, error::Error, types};
 
-use consumer::StreamConsumer;
-use producer::StreamProducer;
+pub use consumer::StreamConsumer;
+pub use producer::StreamProducer;

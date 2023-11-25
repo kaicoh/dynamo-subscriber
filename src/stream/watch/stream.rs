@@ -30,6 +30,7 @@ where
     table_name: String,
     stream_arn: String,
     shards: Vec<Shard>,
+    init_sender: Option<oneshot::Sender<()>>,
     client: Client,
     shard_iterator_type: ShardIteratorType,
     interval: Option<Duration>,
@@ -83,6 +84,10 @@ where
             error!("Unexpected error during sending records. {err}");
         }
     }
+
+    fn init_sender(&mut self) -> Option<oneshot::Sender<()>> {
+        self.init_sender.take()
+    }
 }
 
 type BoxedReceiver =
@@ -92,12 +97,26 @@ type BoxedReceiver =
 pub struct WatchStream {
     sender: Option<oneshot::Sender<()>>,
     inner: BoxedReceiver,
+    initialized: bool,
+    init_receiver: oneshot::Receiver<()>,
 }
 
 #[async_trait]
 impl StreamConsumer for WatchStream {
     fn tx_close(&mut self) -> Option<oneshot::Sender<()>> {
         self.sender.take()
+    }
+
+    fn init_receiver(&mut self) -> &mut oneshot::Receiver<()> {
+        &mut self.init_receiver
+    }
+
+    fn initialized(&self) -> bool {
+        self.initialized
+    }
+
+    fn done_initialization(&mut self) {
+        self.initialized = true;
     }
 }
 
@@ -143,17 +162,29 @@ async fn make_future(
 }
 
 impl WatchStream {
-    fn new(sender: oneshot::Sender<()>, receiver: watch::Receiver<Vec<Record>>) -> Self {
+    fn new(
+        sender: oneshot::Sender<()>,
+        receiver: watch::Receiver<Vec<Record>>,
+        init_receiver: oneshot::Receiver<()>,
+    ) -> Self {
         Self {
             sender: Some(sender),
             inner: ReusableBoxFuture::new(async move { (Ok(()), receiver) }),
+            initialized: false,
+            init_receiver,
         }
     }
 
-    fn from_changes(sender: oneshot::Sender<()>, receiver: watch::Receiver<Vec<Record>>) -> Self {
+    fn from_changes(
+        sender: oneshot::Sender<()>,
+        receiver: watch::Receiver<Vec<Record>>,
+        init_receiver: oneshot::Receiver<()>,
+    ) -> Self {
         Self {
             sender: Some(sender),
             inner: ReusableBoxFuture::new(make_future(receiver)),
+            initialized: false,
+            init_receiver,
         }
     }
 }

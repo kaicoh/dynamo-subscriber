@@ -7,9 +7,9 @@ resolver = "2"
 [dependencies]
 async-recursion = "1.0.5"
 async-trait = "0.1.74"
-aws-config = { version = "1.0.0", features = ["behavior-version-latest"] }
-aws-sdk-dynamodb = "0.39.0"
-aws-sdk-dynamodbstreams = "0.39.0"
+aws-config = { version = "1.0.1" }
+aws-sdk-dynamodb = "1.1.0"
+aws-sdk-dynamodbstreams = "1.1.0"
 thiserror = "1.0.50"
 tokio = { version = "1", features = ["rt", "sync", "time"] }
 tokio-stream = "0.1.14"
@@ -17,5 +17,7 @@ tokio-util = "0.7.10"
 tracing = "0.1"
 
 [dev-dependencies]
+aws-credential-types = { version = "1.0.0", features = ["hardcoded-credentials"] }
 itertools = "0.12"
 tokio = { version = "1", features = ["macros"] }
+ulid = "1.1.0"

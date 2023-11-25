@@ -45,24 +45,27 @@ where
         }
     }
 
-    pub fn interval(self, interval: Duration) -> Self {
-        Self {
-            interval: Some(interval),
-            ..self
-        }
+    pub fn interval(self, interval: Option<Duration>) -> Self {
+        Self { interval, ..self }
     }
 
     pub fn build(self) -> WatchStream {
-        let (tx, rx) = self.build_producer();
-        WatchStream::new(tx, rx)
+        let (tx, rx_init, rx) = self.build_producer();
+        WatchStream::new(tx, rx, rx_init)
     }
 
     pub fn from_changes(self) -> WatchStream {
-        let (tx, rx) = self.build_producer();
-        WatchStream::from_changes(tx, rx)
+        let (tx, rx_init, rx) = self.build_producer();
+        WatchStream::from_changes(tx, rx, rx_init)
     }
 
-    fn build_producer(self) -> (oneshot::Sender<()>, watch::Receiver<Vec<Record>>) {
+    fn build_producer(
+        self,
+    ) -> (
+        oneshot::Sender<()>,
+        oneshot::Receiver<()>,
+        watch::Receiver<Vec<Record>>,
+    ) {
         assert!(self.table_name.is_some(), "`table_name` must set");
         assert!(self.client.is_some(), "`client` must set");
 
@@ -70,12 +73,14 @@ where
         let client = self.client.unwrap();
 
         let (tx_oneshot, rx_oneshot) = oneshot::channel::<()>();
+        let (tx_init, rx_init) = oneshot::channel::<()>();
         let (tx_watch, rx_watch) = watch::channel::<Vec<Record>>(vec![]);
 
         let mut producer = WatchStreamProducer {
             table_name,
             stream_arn: "".to_string(),
             shards: vec![],
+            init_sender: Some(tx_init),
             client,
             shard_iterator_type: self.shard_iterator_type,
             interval: self.interval,
@@ -87,7 +92,7 @@ where
             producer.streaming().await;
         });
 
-        (tx_oneshot, rx_watch)
+        (tx_oneshot, rx_init, rx_watch)
     }
 }
 

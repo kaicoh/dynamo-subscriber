@@ -26,6 +26,7 @@ where
     table_name: String,
     stream_arn: String,
     shards: Vec<Shard>,
+    init_sender: Option<oneshot::Sender<()>>,
     client: Client,
     shard_iterator_type: ShardIteratorType,
     interval: Option<Duration>,
@@ -82,12 +83,18 @@ where
             }
         });
     }
+
+    fn init_sender(&mut self) -> Option<oneshot::Sender<()>> {
+        self.init_sender.take()
+    }
 }
 
 #[derive(Debug)]
 pub struct MpscStream {
     sender: Option<oneshot::Sender<()>>,
     inner: mpsc::Receiver<Vec<Record>>,
+    initialized: bool,
+    init_receiver: oneshot::Receiver<()>,
 }
 
 #[async_trait]
@@ -103,6 +110,18 @@ impl StreamConsumer for MpscStream {
                 error!("Unexpected error during sending close event. {:?}", err);
             }
         }
+    }
+
+    fn init_receiver(&mut self) -> &mut oneshot::Receiver<()> {
+        &mut self.init_receiver
+    }
+
+    fn initialized(&self) -> bool {
+        self.initialized
+    }
+
+    fn done_initialization(&mut self) {
+        self.initialized = true;
     }
 }
 

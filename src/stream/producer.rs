@@ -9,7 +9,7 @@ use std::{cmp, sync::Arc};
 use tokio::{
     sync::{
         mpsc,
-        oneshot::{error::TryRecvError, Receiver},
+        oneshot::{error::TryRecvError, Receiver, Sender},
     },
     time::{sleep, Duration},
 };
@@ -44,6 +44,19 @@ where
         !matches!(self.rx_close().try_recv(), Err(TryRecvError::Empty))
     }
 
+    fn init_sender(&mut self) -> Option<Sender<()>>;
+
+    fn send_initialized(&mut self) {
+        if let Some(tx) = self.init_sender() {
+            if let Err(err) = tx.send(()) {
+                error!(
+                    "Unexpected error during sending initialized event: {:#?}",
+                    err
+                );
+            }
+        }
+    }
+
     async fn init(&mut self) -> Result<(), Error> {
         let stream_arn = self.client().get_stream_arn(self.table_name()).await?;
         self.set_stream_arn(stream_arn);
@@ -54,6 +67,7 @@ where
             .await;
 
         self.set_shards(shards);
+        self.send_initialized();
         Ok(())
     }
 
@@ -89,7 +103,9 @@ where
         loop {
             match self.iterate().await {
                 Ok(records) => {
-                    self.send_records(records);
+                    if !records.is_empty() {
+                        self.send_records(records);
+                    }
                 }
                 Err(err) => {
                     error!(

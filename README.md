@@ -8,13 +8,13 @@ This library is a wrapper of Dynamodb Streams and enables using it as a tokio-st
 
 ## Example
 
-A simple example of [watch stream](https://docs.rs/tokio-stream/0.1.14/tokio_stream/wrappers/struct.WatchStream.html). This stream detects new records are sent and pulls them automatically.
+In this example, the stream object subscribes dynamodb stream and receives records from it.
 
 ```toml
 [dependencies]
 dynamo-subscriber = "0.1.0"
 
-aws-config = { version = "1.0.1" }
+aws-config = "1.0.1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 tokio-stream = "0.1.14"
 ```

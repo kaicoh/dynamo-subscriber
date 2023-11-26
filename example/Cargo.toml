@@ -6,6 +6,6 @@ resolver = "2"
 
 [dependencies]
 dynamo-subscriber = { path = ".." }
-aws-config = { version = "1.0.1" }
+aws-config = "1.0.1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 tokio-stream = "0.1.14"

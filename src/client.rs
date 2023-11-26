@@ -17,6 +17,28 @@ use aws_sdk_dynamodbstreams::{
 };
 use tracing::warn;
 
+/// Client for both Amazon DynamoDB and Amazon DynamoDB Streams.
+///
+/// A [`SdkConfig`] is required to construct a client.
+/// You can select any ways to get [`SdkConfig`] and pass it
+/// to a client.
+///
+/// For example, if you want to subscribe dynamodb streams from your dynamodb-local
+/// running on localhost:8000, set `endpoint_url` to your [`SdkConfig`].
+///
+/// ```rust,no_run
+/// use dynamo_subscriber::Client;
+///
+/// # async fn wrapper() {
+/// let config = aws_config::load_from_env()
+///     .await
+///     .into_builder()
+///     .endpoint_url("http://localhost:8000")
+///     .build();
+/// let client = Client::new(&config);
+/// # }
+/// ```
+/// See the [`aws-config` docs](aws_config) for more information on customizing configuration.
 #[derive(Debug, Clone)]
 pub struct Client {
     db: DbClient,
@@ -24,6 +46,16 @@ pub struct Client {
 }
 
 impl Client {
+    /// Create a new client using passed configuration.
+    ///
+    /// ```rust,no_run
+    /// use dynamo_subscriber::Client;
+    ///
+    /// # async fn wrapper() {
+    /// let config = aws_config::load_from_env().await;
+    /// let client = Client::new(&config);
+    /// # }
+    /// ```
     pub fn new(config: &SdkConfig) -> Self {
         Self {
             db: DbClient::new(config),
@@ -34,17 +66,19 @@ impl Client {
 
 #[async_trait]
 pub trait DynamodbClient: Clone + Send + Sync {
-    /// Return LatestStreamArn from Dynamodb table description.
+    /// Return DynamoDB Stream Arn from DynamoDB
+    /// [`TableDescription`](aws_sdk_dynamodb::types::TableDescription).
     async fn get_stream_arn(&self, table_name: impl Into<String> + Send) -> Result<String, Error>;
 
-    /// Return shards and next shard id from Dynamodb Stream description.
+    /// Return a vector of [`Shard`](crate::types::Shard) and shard id for next iteration.
     async fn get_shards(
         &self,
         stream_arn: impl Into<String> + Send,
         exclusive_start_shard_id: Option<String>,
     ) -> Result<GetShardsOutput, Error>;
 
-    /// Return shard with shard iterator id.
+    /// Return a [`Shard`](crate::types::Shard) that is the shard passed as an argument with shard
+    /// iterator id.
     async fn get_shard_with_iterator(
         &self,
         stream_arn: impl Into<String> + Send,
@@ -52,7 +86,8 @@ pub trait DynamodbClient: Clone + Send + Sync {
         shard_iterator_type: ShardIteratorType,
     ) -> Result<Shard, Error>;
 
-    /// Return records from shard.
+    /// Return a vector of [`Record`](aws_sdk_dynamodbstreams::types::Record) and a
+    /// [`Shard`](crate::types::Shard) with shard iterator id for next getting records call.
     async fn get_records(&self, shard: Shard) -> Result<GetRecordsOutput, Error>;
 }
 

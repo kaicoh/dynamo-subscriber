@@ -14,10 +14,10 @@ async fn main() {
         .build();
 
     let client = subscriber::Client::new(&config);
-    let mut stream = subscriber::stream::watch::builder()
+    let mut stream = subscriber::stream::builder()
         .table_name("People")
         .client(client)
-        .from_changes();
+        .build();
 
     while let Some(records) = stream.next().await {
         println!("{:#?}", records);

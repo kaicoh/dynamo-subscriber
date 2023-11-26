@@ -8,7 +8,7 @@ This library is a wrapper of Dynamodb Streams and enables using it as a tokio-st
 
 ## Example
 
-A simple example of [watch stream](https://docs.rs/tokio-stream/0.1.14/tokio_stream/wrappers/struct.WatchStream.html). This stream detects new records are sent and pulls thems automatically.
+A simple example of [watch stream](https://docs.rs/tokio-stream/0.1.14/tokio_stream/wrappers/struct.WatchStream.html). This stream detects new records are sent and pulls them automatically.
 
 ```toml
 [dependencies]
@@ -36,10 +36,10 @@ async fn main() {
         .build();
 
     let client = subscriber::Client::new(&config);
-    let mut stream = subscriber::stream::watch::builder()
+    let mut stream = subscriber::stream::builder()
         .table_name("People")
         .client(client)
-        .from_changes();
+        .build();
 
     while let Some(records) = stream.next().await {
         println!("{:#?}", records);

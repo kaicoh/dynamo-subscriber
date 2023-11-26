@@ -2,7 +2,11 @@ mod builder;
 
 pub use builder::MpscStreamBuilder;
 
-use super::{types::Shard, DynamodbClient, StreamConsumer, StreamProducer};
+use super::{
+    channel::{self, ConsumerHalf, ProducerHalf},
+    types::Shard,
+    DynamodbClient, StreamConsumerExt, StreamProducerExt,
+};
 
 use async_trait::async_trait;
 use aws_sdk_dynamodbstreams::types::{Record, ShardIteratorType};
@@ -11,10 +15,7 @@ use std::{
     sync::Arc,
     task::{Context, Poll},
 };
-use tokio::{
-    sync::{mpsc, oneshot},
-    time::Duration,
-};
+use tokio::{sync::mpsc, time::Duration};
 use tokio_stream::Stream;
 use tracing::error;
 
@@ -26,16 +27,15 @@ where
     table_name: String,
     stream_arn: String,
     shards: Vec<Shard>,
-    init_sender: Option<oneshot::Sender<()>>,
+    channel: ProducerHalf,
     client: Client,
     shard_iterator_type: ShardIteratorType,
     interval: Option<Duration>,
     sender: mpsc::Sender<Vec<Record>>,
-    receiver: oneshot::Receiver<()>,
 }
 
 #[async_trait]
-impl<Client> StreamProducer<Client> for MpscStreamProducer<Client>
+impl<Client> StreamProducerExt<Client> for MpscStreamProducer<Client>
 where
     Client: DynamodbClient + 'static,
 {
@@ -71,10 +71,6 @@ where
         self.shards = shards;
     }
 
-    fn rx_close(&mut self) -> &mut oneshot::Receiver<()> {
-        &mut self.receiver
-    }
-
     fn send_records(&mut self, records: Vec<Record>) {
         let tx = self.sender.clone();
         tokio::spawn(async move {
@@ -84,53 +80,27 @@ where
         });
     }
 
-    fn init_sender(&mut self) -> Option<oneshot::Sender<()>> {
-        self.init_sender.take()
+    fn channel(&mut self) -> &mut ProducerHalf {
+        &mut self.channel
     }
 }
 
 #[derive(Debug)]
 pub struct MpscStream {
-    sender: Option<oneshot::Sender<()>>,
     inner: mpsc::Receiver<Vec<Record>>,
-    initialized: bool,
-    init_receiver: oneshot::Receiver<()>,
+    channel: ConsumerHalf,
 }
 
-#[async_trait]
-impl StreamConsumer for MpscStream {
-    fn tx_close(&mut self) -> Option<oneshot::Sender<()>> {
-        self.sender.take()
-    }
-
-    fn close(&mut self) {
-        self.inner.close();
-        if let Some(tx) = self.tx_close() {
-            if let Err(err) = tx.send(()) {
-                error!("Unexpected error during sending close event. {:?}", err);
-            }
-        }
-    }
-
-    fn init_receiver(&mut self) -> &mut oneshot::Receiver<()> {
-        &mut self.init_receiver
-    }
-
-    fn initialized(&self) -> bool {
-        self.initialized
-    }
-
-    fn done_initialization(&mut self) {
-        self.initialized = true;
+impl StreamConsumerExt for MpscStream {
+    fn channel(&mut self) -> &mut ConsumerHalf {
+        &mut self.channel
     }
 }
 
 impl Drop for MpscStream {
     fn drop(&mut self) {
         self.inner.close();
-        if let Some(tx) = self.tx_close() {
-            let _ = tx.send(());
-        }
+        self.channel().close(|| {});
     }
 }
 

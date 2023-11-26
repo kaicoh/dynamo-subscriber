@@ -50,49 +50,38 @@ where
     }
 
     pub fn build(self) -> WatchStream {
-        let (tx, rx_init, rx) = self.build_producer();
-        WatchStream::new(tx, rx, rx_init)
+        let (c_half, rx) = self.build_producer();
+        WatchStream::new(c_half, rx)
     }
 
     pub fn from_changes(self) -> WatchStream {
-        let (tx, rx_init, rx) = self.build_producer();
-        WatchStream::from_changes(tx, rx, rx_init)
+        let (c_half, rx) = self.build_producer();
+        WatchStream::from_changes(c_half, rx)
     }
 
-    fn build_producer(
-        self,
-    ) -> (
-        oneshot::Sender<()>,
-        oneshot::Receiver<()>,
-        watch::Receiver<Vec<Record>>,
-    ) {
-        assert!(self.table_name.is_some(), "`table_name` must set");
-        assert!(self.client.is_some(), "`client` must set");
+    fn build_producer(self) -> (ConsumerHalf, watch::Receiver<Vec<Record>>) {
+        let table_name = self.table_name.expect("`table_name` is required");
+        let client = self.client.expect("`client` is required");
 
-        let table_name = self.table_name.unwrap();
-        let client = self.client.unwrap();
-
-        let (tx_oneshot, rx_oneshot) = oneshot::channel::<()>();
-        let (tx_init, rx_init) = oneshot::channel::<()>();
+        let (p_half, c_half) = channel::new();
         let (tx_watch, rx_watch) = watch::channel::<Vec<Record>>(vec![]);
 
         let mut producer = WatchStreamProducer {
             table_name,
             stream_arn: "".to_string(),
             shards: vec![],
-            init_sender: Some(tx_init),
+            channel: p_half,
             client,
             shard_iterator_type: self.shard_iterator_type,
             interval: self.interval,
             sender: tx_watch,
-            receiver: rx_oneshot,
         };
 
         tokio::spawn(async move {
             producer.streaming().await;
         });
 
-        (tx_oneshot, rx_init, rx_watch)
+        (c_half, rx_watch)
     }
 }
 

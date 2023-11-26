@@ -9,7 +9,7 @@ where
     client: Option<Client>,
     shard_iterator_type: ShardIteratorType,
     interval: Option<Duration>,
-    buffer: Option<usize>,
+    buffer: usize,
 }
 
 impl<Client> MpscStreamBuilder<Client>
@@ -22,7 +22,7 @@ where
             client: None,
             shard_iterator_type: ShardIteratorType::Latest,
             interval: Some(Duration::from_secs(3)),
-            buffer: Some(100),
+            buffer: 100,
         }
     }
 
@@ -52,59 +52,45 @@ where
     }
 
     pub fn buffer(self, buffer: usize) -> Self {
-        Self {
-            buffer: Some(buffer),
-            ..self
+        if buffer == 0 {
+            panic!("buffer must be positive.");
         }
+
+        Self { buffer, ..self }
     }
 
     pub fn build(self) -> MpscStream {
-        let (tx, rx_init, rx) = self.build_producer();
+        let (c_half, rx) = self.build_producer();
 
         MpscStream {
-            sender: Some(tx),
             inner: rx,
-            initialized: false,
-            init_receiver: rx_init,
+            channel: c_half,
         }
     }
 
-    fn build_producer(
-        self,
-    ) -> (
-        oneshot::Sender<()>,
-        oneshot::Receiver<()>,
-        mpsc::Receiver<Vec<Record>>,
-    ) {
-        assert!(self.table_name.is_some(), "`table_name` must set");
-        assert!(self.client.is_some(), "`client` must set");
-        assert!(self.buffer.is_some(), "`buffer` must set");
+    fn build_producer(self) -> (ConsumerHalf, mpsc::Receiver<Vec<Record>>) {
+        let table_name = self.table_name.expect("`table_name` is required");
+        let client = self.client.expect("`client` is required");
 
-        let table_name = self.table_name.unwrap();
-        let client = self.client.unwrap();
-        let buffer = self.buffer.unwrap();
-
-        let (tx_oneshot, rx_oneshot) = oneshot::channel::<()>();
-        let (tx_init, rx_init) = oneshot::channel::<()>();
-        let (tx_mpsc, rx_mpsc) = mpsc::channel::<Vec<Record>>(buffer);
+        let (p_half, c_half) = channel::new();
+        let (tx_mpsc, rx_mpsc) = mpsc::channel::<Vec<Record>>(self.buffer);
 
         let mut producer = MpscStreamProducer {
             table_name,
             stream_arn: "".to_string(),
             shards: vec![],
-            init_sender: Some(tx_init),
+            channel: p_half,
             client,
             shard_iterator_type: self.shard_iterator_type,
             interval: self.interval,
             sender: tx_mpsc,
-            receiver: rx_oneshot,
         };
 
         tokio::spawn(async move {
             producer.streaming().await;
         });
 
-        (tx_oneshot, rx_init, rx_mpsc)
+        (c_half, rx_mpsc)
     }
 }
 

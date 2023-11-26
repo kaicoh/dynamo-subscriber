@@ -8,7 +8,7 @@ use aws_sdk_dynamodb::{
     Client,
 };
 use aws_sdk_dynamodbstreams::types::Record;
-use dynamo_subscriber::stream::StreamConsumer;
+use dynamo_subscriber::stream::StreamConsumerExt;
 use tokio::time::{sleep, Duration};
 use ulid::Ulid;
 
@@ -66,12 +66,12 @@ pub async fn teardown(config: &SdkConfig) {
     drop_table(config).await;
 }
 
-pub async fn wait_until_consuming_enabled(consumer: &mut impl StreamConsumer) {
-    let mut res = consumer.is_initialized();
+pub async fn wait_until_consuming_enabled(stream: &mut impl StreamConsumerExt) {
+    let mut res = stream.initialized();
 
-    while !res.unwrap() {
+    while !res {
         sleep(Duration::from_millis(100)).await;
-        res = consumer.is_initialized();
+        res = stream.initialized();
     }
 }
 

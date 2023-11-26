@@ -1,6 +1,6 @@
 mod stream;
 
-use super::{types, DynamodbClient, StreamConsumer, StreamProducer};
+use super::{channel, types, DynamodbClient, StreamConsumerExt, StreamProducerExt};
 
 pub use stream::{WatchStream, WatchStreamBuilder};
 

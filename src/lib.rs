@@ -1,6 +1,9 @@
+#[macro_use]
+mod macros;
+
 mod client;
 mod error;
-pub mod stream;
 mod types;
 
+pub mod stream;
 pub use client::Client;

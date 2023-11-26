@@ -3,6 +3,7 @@ mod common;
 use dynamo_subscriber as subscriber;
 
 use common::{pk, put_item, setup, teardown, wait_until_consuming_enabled};
+use subscriber::stream::StreamConsumerExt;
 use tokio_stream::StreamExt;
 
 #[tokio::test]
@@ -41,6 +42,12 @@ async fn watch_stream() {
     let record = records.get(0).unwrap();
     assert_eq!(pk(record), "watch_stream_item");
 
+    // Stop streaming
+    stream.close();
+
+    let records_opt = stream.next().await;
+    assert!(records_opt.is_none());
+
     teardown(sdk_config).await;
 }
 
@@ -73,6 +80,12 @@ async fn from_changes_watch_stream() {
     let record = records.get(0).unwrap();
     assert_eq!(pk(record), "from_changes_stream_item");
 
+    // Stop streaming
+    stream.close();
+
+    let records_opt = stream.next().await;
+    assert!(records_opt.is_none());
+
     teardown(sdk_config).await;
 }
 
@@ -104,6 +117,12 @@ async fn mpsc_stream() {
 
     let record = records.get(0).unwrap();
     assert_eq!(pk(record), "mpsc_stream_item");
+
+    // Stop streaming
+    stream.close();
+
+    let records_opt = stream.next().await;
+    assert!(records_opt.is_none());
 
     teardown(sdk_config).await;
 }

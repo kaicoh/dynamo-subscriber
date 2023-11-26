@@ -2,7 +2,11 @@ mod builder;
 
 pub use builder::WatchStreamBuilder;
 
-use super::{types::Shard, DynamodbClient, StreamConsumer, StreamProducer};
+use super::{
+    channel::{self, ConsumerHalf, ProducerHalf},
+    types::Shard,
+    DynamodbClient, StreamConsumerExt, StreamProducerExt,
+};
 
 use async_trait::async_trait;
 use aws_sdk_dynamodbstreams::types::{Record, ShardIteratorType};
@@ -12,10 +16,7 @@ use std::{
     task::{Context, Poll},
 };
 use tokio::{
-    sync::{
-        oneshot,
-        watch::{self, error::RecvError},
-    },
+    sync::watch::{self, error::RecvError},
     time::Duration,
 };
 use tokio_stream::Stream;
@@ -30,16 +31,15 @@ where
     table_name: String,
     stream_arn: String,
     shards: Vec<Shard>,
-    init_sender: Option<oneshot::Sender<()>>,
+    channel: ProducerHalf,
     client: Client,
     shard_iterator_type: ShardIteratorType,
     interval: Option<Duration>,
     sender: watch::Sender<Vec<Record>>,
-    receiver: oneshot::Receiver<()>,
 }
 
 #[async_trait]
-impl<Client> StreamProducer<Client> for WatchStreamProducer<Client>
+impl<Client> StreamProducerExt<Client> for WatchStreamProducer<Client>
 where
     Client: DynamodbClient + 'static,
 {
@@ -75,18 +75,14 @@ where
         self.shards = shards;
     }
 
-    fn rx_close(&mut self) -> &mut oneshot::Receiver<()> {
-        &mut self.receiver
-    }
-
     fn send_records(&mut self, records: Vec<Record>) {
         if let Err(err) = self.sender.send(records) {
             error!("Unexpected error during sending records. {err}");
         }
     }
 
-    fn init_sender(&mut self) -> Option<oneshot::Sender<()>> {
-        self.init_sender.take()
+    fn channel(&mut self) -> &mut ProducerHalf {
+        &mut self.channel
     }
 }
 
@@ -95,36 +91,19 @@ type BoxedReceiver =
 
 #[derive(Debug)]
 pub struct WatchStream {
-    sender: Option<oneshot::Sender<()>>,
     inner: BoxedReceiver,
-    initialized: bool,
-    init_receiver: oneshot::Receiver<()>,
+    channel: ConsumerHalf,
 }
 
-#[async_trait]
-impl StreamConsumer for WatchStream {
-    fn tx_close(&mut self) -> Option<oneshot::Sender<()>> {
-        self.sender.take()
-    }
-
-    fn init_receiver(&mut self) -> &mut oneshot::Receiver<()> {
-        &mut self.init_receiver
-    }
-
-    fn initialized(&self) -> bool {
-        self.initialized
-    }
-
-    fn done_initialization(&mut self) {
-        self.initialized = true;
+impl StreamConsumerExt for WatchStream {
+    fn channel(&mut self) -> &mut ConsumerHalf {
+        &mut self.channel
     }
 }
 
 impl Drop for WatchStream {
     fn drop(&mut self) {
-        if let Some(tx) = self.tx_close() {
-            let _ = tx.send(());
-        }
+        self.channel().close(|| {});
     }
 }
 
@@ -162,29 +141,17 @@ async fn make_future(
 }
 
 impl WatchStream {
-    fn new(
-        sender: oneshot::Sender<()>,
-        receiver: watch::Receiver<Vec<Record>>,
-        init_receiver: oneshot::Receiver<()>,
-    ) -> Self {
+    fn new(channel: ConsumerHalf, receiver: watch::Receiver<Vec<Record>>) -> Self {
         Self {
-            sender: Some(sender),
+            channel,
             inner: ReusableBoxFuture::new(async move { (Ok(()), receiver) }),
-            initialized: false,
-            init_receiver,
         }
     }
 
-    fn from_changes(
-        sender: oneshot::Sender<()>,
-        receiver: watch::Receiver<Vec<Record>>,
-        init_receiver: oneshot::Receiver<()>,
-    ) -> Self {
+    fn from_changes(channel: ConsumerHalf, receiver: watch::Receiver<Vec<Record>>) -> Self {
         Self {
-            sender: Some(sender),
+            channel,
             inner: ReusableBoxFuture::new(make_future(receiver)),
-            initialized: false,
-            init_receiver,
         }
     }
 }

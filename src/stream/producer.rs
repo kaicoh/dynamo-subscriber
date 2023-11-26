@@ -1,4 +1,5 @@
 use super::{
+    channel::ProducerHalf,
     types::{GetShardsOutput, Lineages, Shard},
     DynamodbClient, Error,
 };
@@ -7,16 +8,13 @@ use async_trait::async_trait;
 use aws_sdk_dynamodbstreams::types::{Record, ShardIteratorType};
 use std::{cmp, sync::Arc};
 use tokio::{
-    sync::{
-        mpsc,
-        oneshot::{error::TryRecvError, Receiver, Sender},
-    },
+    sync::mpsc,
     time::{sleep, Duration},
 };
 use tracing::error;
 
 #[async_trait]
-pub trait StreamProducer<Client>: Send + Sync
+pub trait StreamProducerExt<Client>: Send + Sync
 where
     Client: DynamodbClient + 'static,
 {
@@ -36,26 +34,9 @@ where
 
     fn shard_iterator_type(&self) -> ShardIteratorType;
 
-    fn rx_close(&mut self) -> &mut Receiver<()>;
-
     fn send_records(&mut self, records: Vec<Record>);
 
-    fn should_close(&mut self) -> bool {
-        !matches!(self.rx_close().try_recv(), Err(TryRecvError::Empty))
-    }
-
-    fn init_sender(&mut self) -> Option<Sender<()>>;
-
-    fn send_initialized(&mut self) {
-        if let Some(tx) = self.init_sender() {
-            if let Err(err) = tx.send(()) {
-                error!(
-                    "Unexpected error during sending initialized event: {:#?}",
-                    err
-                );
-            }
-        }
-    }
+    fn channel(&mut self) -> &mut ProducerHalf;
 
     async fn init(&mut self) -> Result<(), Error> {
         let stream_arn = self.client().get_stream_arn(self.table_name()).await?;
@@ -67,7 +48,7 @@ where
             .await;
 
         self.set_shards(shards);
-        self.send_initialized();
+        self.channel().send_init();
         Ok(())
     }
 
@@ -92,32 +73,27 @@ where
     }
 
     async fn streaming(&mut self) {
-        if let Err(err) = self.init().await {
+        ok_or_return!(self.init().await, |err| {
             error!(
                 "Unexpected error during initialization: {err}. Skip polling {} table.",
                 self.table_name(),
             );
-            return;
-        }
+        });
 
         loop {
-            match self.iterate().await {
-                Ok(records) => {
-                    if !records.is_empty() {
-                        self.send_records(records);
-                    }
-                }
-                Err(err) => {
-                    error!(
-                        "Unexpected error during iteration: {err}. Stop polling {} table.",
-                        self.table_name(),
-                    );
-                    return;
-                }
+            let records = ok_or_return!(self.iterate().await, |err| {
+                error!(
+                    "Unexpected error during iteration: {err}. Stop polling {} table.",
+                    self.table_name(),
+                );
+            });
+
+            if self.channel().should_close() {
+                return;
             }
 
-            if self.should_close() {
-                return;
+            if !records.is_empty() {
+                self.send_records(records);
             }
 
             if let Some(interval) = self.interval() {

@@ -1,5 +1,5 @@
 use super::{
-    channel::{self, ConsumerHalf, ProducerHalf},
+    channel::{self, ConsumerChannel, ProducerChannel},
     types::{GetShardsOutput, Lineages, Shard},
     DynamodbClient, Error,
 };
@@ -17,6 +17,7 @@ use tokio::{
 use tokio_stream::Stream;
 use tracing::error;
 
+/// The polling half of DynamoDB Streams.
 #[derive(Debug)]
 pub struct DynamodbStreamProducer<Client>
 where
@@ -25,7 +26,7 @@ where
     table_name: String,
     stream_arn: String,
     shards: Option<Vec<Shard>>,
-    channel: ProducerHalf,
+    channel: ProducerChannel,
     client: Client,
     shard_iterator_type: ShardIteratorType,
     interval: Option<Duration>,
@@ -40,6 +41,7 @@ where
         Arc::new(self.client.clone())
     }
 
+    /// Get shards and shard iterator ids for first attempt to get records.
     async fn init(&mut self) -> Result<(), Error> {
         let stream_arn = self.client.get_stream_arn(&self.table_name).await?;
         self.stream_arn = stream_arn;
@@ -55,6 +57,7 @@ where
         Ok(())
     }
 
+    /// Get records and renew shards for next iteration.
     async fn iterate(&mut self) -> Result<Vec<Record>, Error> {
         let lineages: Lineages = self.shards.take().unwrap_or_default().into();
         let (mut shards, records) = lineages.get_records(self.client()).await;
@@ -75,6 +78,7 @@ where
         Ok(records)
     }
 
+    /// Poll the DynamoDB Streams.
     async fn streaming(&mut self) {
         ok_or_return!(self.init().await, |err| {
             error!(
@@ -105,6 +109,7 @@ where
         }
     }
 
+    /// Get all shards from the DynamoDB table.
     async fn get_all_shards(&self) -> Result<Vec<Shard>, Error> {
         let GetShardsOutput {
             mut shards,
@@ -123,6 +128,7 @@ where
         Ok(shards)
     }
 
+    /// Get and set shard iterator.
     async fn get_shard_iterators(
         &self,
         shards: Vec<Shard>,
@@ -166,21 +172,41 @@ where
     }
 }
 
+/// Represent DynamoDB Stream.
+///
+/// This struct receives DynamoDB Stream records from polling half and emit them as Rust Stream.
 #[derive(Debug)]
 pub struct DynamodbStream {
     receiver: mpsc::Receiver<Vec<Record>>,
-    channel: ConsumerHalf,
+    channel: Option<ConsumerChannel>,
 }
 
 impl DynamodbStream {
-    pub fn close(&mut self) {
-        self.channel.close(|| {
-            error!("Unexpected error during sending close event.");
-        });
-    }
-
-    pub fn initialized(&mut self) -> bool {
-        self.channel.initialized()
+    /// Get [`ConsumerChannel`] as communication channel to the stream.
+    ///
+    /// Once you take a channel from this method, you can't take it anymore from the same channel
+    /// because this method also passes the ownership of the channel.
+    ///
+    /// ```rust,no_run
+    /// use aws_config::BehaviorVersion;
+    /// use dynamo_subscriber as subscriber;
+    ///
+    /// # async fn wrapper() {
+    /// # let config = aws_config::load_defaults(BehaviorVersion::latest()).await;
+    /// # let client = subscriber::Client::new(&config);
+    /// let mut stream = subscriber::stream::builder()
+    ///     .client(client)
+    ///     .table_name("People")
+    ///     .build();
+    /// let channel = stream.take_channel();
+    /// assert!(channel.is_some());
+    ///
+    /// let channel = stream.take_channel();
+    /// assert!(channel.is_none());
+    /// # }
+    /// ```
+    pub fn take_channel(&mut self) -> Option<ConsumerChannel> {
+        self.channel.take()
     }
 }
 
@@ -195,7 +221,9 @@ impl Stream for DynamodbStream {
 impl Drop for DynamodbStream {
     fn drop(&mut self) {
         self.receiver.close();
-        self.channel.close(|| {});
+        if let Some(mut channel) = self.take_channel() {
+            channel.close(|| {});
+        }
     }
 }
 
@@ -211,6 +239,7 @@ impl AsMut<mpsc::Receiver<Vec<Record>>> for DynamodbStream {
     }
 }
 
+/// A builder for [`DynamodbStream`].
 #[derive(Debug)]
 pub struct DynamodbStreamBuilder<Client>
 where
@@ -227,6 +256,7 @@ impl<Client> DynamodbStreamBuilder<Client>
 where
     Client: DynamodbClient + 'static,
 {
+    /// Create a new `DynamodbStreamBuilder`.
     pub fn new() -> Self {
         Self {
             table_name: None,
@@ -237,6 +267,9 @@ where
         }
     }
 
+    /// Set table name you want to retrieve records from.
+    ///
+    /// **Setting any table name is required** before the build method is called.
     pub fn table_name(self, table_name: impl Into<String>) -> Self {
         Self {
             table_name: Some(table_name.into()),
@@ -244,6 +277,9 @@ where
         }
     }
 
+    /// Set client to call AWS APIs.
+    ///
+    /// **Setting any client is required** before the build method is called.
     pub fn client(self, client: Client) -> Self {
         Self {
             client: Some(client),
@@ -251,6 +287,12 @@ where
         }
     }
 
+    /// Set [`ShardIteratorType`] to get records for the first time.
+    /// After the first time, the DynamodbStream uses the shard iterator from the previous
+    /// `get records` operation outputs.
+    ///
+    /// Setting any shard iterator type is optional. If you omit calling this method,
+    /// `ShardIteratorType::Latest` is used as default value.
     pub fn shard_iterator_type(self, shard_iterator_type: ShardIteratorType) -> Self {
         Self {
             shard_iterator_type,
@@ -258,10 +300,25 @@ where
         }
     }
 
+    /// Set interval between polling attempts. When None is provided there are no intervals between
+    /// polling iterations.
+    ///
+    /// Setting any interval is optional. If you omit calling this method,
+    /// `3 seconds` is used as default value.
     pub fn interval(self, interval: Option<Duration>) -> Self {
         Self { interval, ..self }
     }
 
+    /// Set the buffer for [`tokio::sync::mpsc::channel`](tokio::sync::mpsc::channel).
+    ///
+    /// The stream records are stored up to the buffer size unless the records are consumed.
+    /// Once the buffer is full, attempts to receive records from the DynamoDB Streams will
+    /// wait until the records is consumed.
+    ///
+    /// This method will panic when given zero as buffer size.
+    ///
+    /// Setting buffer size is optional. If you omit calling this method,
+    /// `100` is used as default value.
     pub fn buffer(self, buffer: usize) -> Self {
         if buffer == 0 {
             panic!("buffer must be positive.");
@@ -270,16 +327,19 @@ where
         Self { buffer, ..self }
     }
 
+    /// Consumes the builder and constructs a [`DynamodbStream`].
+    ///
+    /// This method will panic if no table name is set or no client is set.
     pub fn build(self) -> DynamodbStream {
         let (c_half, rx) = self.build_producer();
 
         DynamodbStream {
             receiver: rx,
-            channel: c_half,
+            channel: Some(c_half),
         }
     }
 
-    fn build_producer(self) -> (ConsumerHalf, mpsc::Receiver<Vec<Record>>) {
+    fn build_producer(self) -> (ConsumerChannel, mpsc::Receiver<Vec<Record>>) {
         let table_name = self.table_name.expect("`table_name` is required");
         let client = self.client.expect("`client` is required");
 

@@ -19,12 +19,20 @@ async fn it_can_be_consumed_as_stream() {
         .interval(None)
         .build();
 
-    wait_until_initialized(&mut stream).await;
+    let channel_opt = stream.take_channel();
+    assert!(channel_opt.is_some());
 
-    // Test put item
+    let mut channel = channel_opt.unwrap();
+    wait_until_initialized(&mut channel).await;
+
+    // Put item to table.
+    // First attempt
     put_item("pk0", &sdk_config).await;
+    // Second attempt
+    put_item("pk1", &sdk_config).await;
 
     // Receive dynamodb stream
+    // First iteration (from first attempt)
     let records_opt = stream.next().await;
     assert!(records_opt.is_some());
 
@@ -34,9 +42,20 @@ async fn it_can_be_consumed_as_stream() {
     let record = records.get(0).unwrap();
     assert_eq!(pk(record), "pk0");
 
-    // Stop streaming
-    stream.close();
+    // Second iteration (from second attempt)
+    let records_opt = stream.next().await;
+    assert!(records_opt.is_some());
 
+    let records = records_opt.unwrap();
+    assert_eq!(records.len(), 1);
+
+    let record = records.get(0).unwrap();
+    assert_eq!(pk(record), "pk1");
+
+    // Send `Stop polling` event to the polling half of the stream.
+    channel.close(|| {});
+
+    // Stream is now closed.
     let records_opt = stream.next().await;
     assert!(records_opt.is_none());
 

@@ -1,5 +1,9 @@
 # dynamo-subscriber
 
+[![Version](https://img.shields.io/crates/v/dynamo-subscriber)](https://crates.io/crates/dynamo-subscriber)
+[![License](https://img.shields.io/crates/l/dynamo-subscriber)](LICENSE)
+[![Test](https://img.shields.io/github/actions/workflow/status/kaicoh/dynamo-subscriber/test.yml)](https://github.com/kaicoh/dynamo-subscriber/actions/workflows/test.yml)
+
 Subscribe [DynamoDB Streams](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/streamsmain.html) as [tokio-stream](https://tokio.rs/tokio/tutorial/streams).
 
 ## Overview

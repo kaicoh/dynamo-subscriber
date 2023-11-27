@@ -3,6 +3,13 @@ name = "dynamo-subscriber"
 version = "0.1.0"
 edition = "2021"
 resolver = "2"
+authors = ["kaicoh <sumireminami@gmail.com>"]
+keywords = ["aws", "dynamodb", "dynamodbstreams"]
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/kaicoh/dynamo-subscriber"
+documentation = "https://docs.rs/dynamo-subscriber"
+description = "Subscribe DynamoDB Streams as tokio-stream"
 
 [dependencies]
 async-recursion = "1.0.5"

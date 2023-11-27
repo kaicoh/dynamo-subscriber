@@ -27,9 +27,9 @@ async fn it_can_be_consumed_as_stream() {
 
     // Put item to table.
     // First attempt
-    put_item("pk0", &sdk_config).await;
+    put_item("pk0", sdk_config).await;
     // Second attempt
-    put_item("pk1", &sdk_config).await;
+    put_item("pk1", sdk_config).await;
 
     // Receive dynamodb stream
     // First iteration (from first attempt)

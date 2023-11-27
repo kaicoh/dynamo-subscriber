@@ -75,8 +75,8 @@ impl ConsumerChannel {
         }
     }
 
-    /// Send `Stop polling` event to the stream. The passed closure is executed only when the
-    /// sending the event fails.
+    /// Send `Stop polling` event to the stream. The passed closure is executed only when
+    /// sending event fails.
     pub fn close(&mut self, f: impl FnOnce()) {
         if let Some(tx) = self.sender.take() {
             let _ = tx.send(()).map_err(|_| f());

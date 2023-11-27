@@ -1,6 +1,6 @@
 # dynamo-subscriber
 
-Subscribe [Dynamodb Streams](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/streamsmain.html) as [tokio-stream](https://tokio.rs/tokio/tutorial/streams).
+Subscribe [DynamoDB Streams](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/streamsmain.html) as [tokio-stream](https://tokio.rs/tokio/tutorial/streams).
 
 ## Overview
 

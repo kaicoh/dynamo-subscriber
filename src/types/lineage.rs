@@ -291,7 +291,7 @@ mod tests {
     }
 
     fn create_records(seqs: &[&str]) -> Vec<Record> {
-        seqs.into_iter().map(|&seq| create_record(seq)).collect()
+        seqs.iter().map(|&seq| create_record(seq)).collect()
     }
 
     fn create_record(seq: &str) -> Record {
@@ -406,10 +406,10 @@ mod tests {
             let l0 = lineages.iter().find(|l| l.shard_id() == "0").unwrap();
             let l3 = lineages.iter().find(|l| l.shard_id() == "3").unwrap();
 
-            let l1 = get_child(&l0, "1");
-            let l2 = get_child(&l0, "2");
-            let l4 = get_child(&l3, "4");
-            let l5 = get_child(&l3, "5");
+            let l1 = get_child(l0, "1");
+            let l2 = get_child(l0, "2");
+            let l4 = get_child(l3, "4");
+            let l5 = get_child(l3, "5");
             assert!(l1.is_some());
             assert!(l2.is_some());
             assert!(l4.is_some());
@@ -454,15 +454,11 @@ mod tests {
         let shards = vec![s0, s1, s2];
         let lineages = Lineages::from(shards);
 
-        let out3 = get_records_output("3", None, &vec!["0012", "0004", "0008", "0001"]);
+        let out3 = get_records_output("3", None, &["0012", "0004", "0008", "0001"]);
 
-        let out4 = get_records_output(
-            "4",
-            Some("3"),
-            &vec!["0003", "0010", "0011", "0009", "0006"],
-        );
+        let out4 = get_records_output("4", Some("3"), &["0003", "0010", "0011", "0009", "0006"]);
 
-        let out5 = get_records_output("5", Some("3"), &vec!["0002", "0005", "0013", "0007"]);
+        let out5 = get_records_output("5", Some("3"), &["0002", "0005", "0013", "0007"]);
 
         let client = TestClient::new(vec![out3, out4, out5]);
         let (shards, records) = lineages.get_records(Arc::new(client)).await;

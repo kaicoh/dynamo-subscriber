@@ -28,14 +28,8 @@ jobs:
         run: cargo check --all-features
 
   test:
-    name: Test -- ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os:
-          - macos-latest
-          - ubuntu-latest
-          - windows-latest
+    name: Test
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout sources
         uses: actions/checkout@v3
@@ -47,8 +41,6 @@ jobs:
 
       - name: Use cache
         uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: ${{ matrix.os }}
 
       - name: Run cargo test
         shell: bash

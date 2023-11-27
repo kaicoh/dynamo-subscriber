@@ -7,13 +7,21 @@ use std::{cmp, sync::Arc};
 use tokio::sync::mpsc::{self, Sender};
 use tracing::error;
 
+/// A representation of shard lineage(parent and children).
+///
+/// Because an application must always process a parent shard before it processes a child shard,
+/// this struct ensures that the stream records are processed in the correct order.
 #[derive(Debug, Clone)]
-struct Lineage {
+pub struct Lineage {
+    /// The parent shard of this children.
     shard: Shard,
+
+    /// The lineages from the child of this shard.
     children: Vec<Lineage>,
 }
 
 impl Lineage {
+    /// Create a new lineage from [`Shard`] without children.
     fn new(shard: Shard) -> Self {
         Self {
             shard,
@@ -21,18 +29,23 @@ impl Lineage {
         }
     }
 
+    /// The shard ID of this lineage.
     fn shard_id(&self) -> &str {
         self.shard.id()
     }
 
+    /// The parent shard ID of this lineage's shard.
     fn parent_shard_id(&self) -> Option<&str> {
         self.shard.parent_shard_id()
     }
 
+    /// Set children to the lineage.
     fn set_children(&mut self, children: Vec<Lineage>) {
         self.children = children;
     }
 
+    /// Return true if the passed shard id is equal to the lineage's shard id
+    /// or the lineage has the shard having passed shard id as its descendant.
     fn has(&self, shard_id: Option<&str>) -> bool {
         if let Some(id) = shard_id {
             if self.shard_id() == id {
@@ -45,6 +58,7 @@ impl Lineage {
         }
     }
 
+    /// Return true if the passed shard id is equal to the lineage' shard parent's.
     fn is_child(&self, shard_id: &str) -> bool {
         if let Some(parent_shard_id) = self.parent_shard_id() {
             parent_shard_id == shard_id
@@ -53,6 +67,7 @@ impl Lineage {
         }
     }
 
+    /// Set lineages as the shard's descendant.
     fn set_descendant(&mut self, desc: &Lineage) {
         if let Some(parent_shard_id) = desc.parent_shard_id() {
             if self.shard_id() == parent_shard_id {
@@ -65,11 +80,13 @@ impl Lineage {
         }
     }
 
-    /// Return self and children length
+    /// Return the number of shards the lineage has.
     fn len(&self) -> usize {
         self.children.iter().fold(0, |acc, l| acc + l.len()) + 1
     }
 
+    /// Get records and next shard iterator, then send them. This method ensures that
+    /// processing shards in correct order (processing parent shard before children).
     #[async_recursion]
     async fn get_records<Client>(
         self,
@@ -104,23 +121,33 @@ impl Lineage {
     }
 }
 
+/// A representation of group of shard lineage(parent and children).
 #[derive(Debug, Clone)]
 pub struct Lineages(Vec<Lineage>);
 
 impl Lineages {
+    /// Create a new lineage group
     fn new() -> Self {
         Self(vec![])
     }
 
+    /// Set shard as a lineage to the lineage group.
+    ///
+    /// - If there are children to the shard, set children and includes it as a new lineage.
+    /// - If the shard is a descendant of any lineage in the group, includes it as a new lineage.
     fn init(lineages: Self, shard: Shard) -> Self {
         let lineages = lineages.0;
+        // Search children of the given shard.
         let (children, mut lineages): (Vec<Lineage>, Vec<Lineage>) = lineages
             .into_iter()
             .partition(|lineage| lineage.is_child(shard.id()));
 
+        // Set children to the new lineage.
         let mut lineage = Lineage::new(shard.clone());
         lineage.set_children(children);
 
+        // If there are an ancestor lineage in the current lineages, set the new lineage
+        // as its descendant otherwise push the new lineage as the current lineages.
         if let Some(ancestor) = lineages.iter_mut().find(|l| l.has(shard.parent_shard_id())) {
             ancestor.set_descendant(&lineage);
         } else {
@@ -130,10 +157,17 @@ impl Lineages {
         Self(lineages)
     }
 
+    /// Return the number of shards in the lineage group.
     fn shards_len(&self) -> usize {
         self.0.iter().fold(0, |acc, l| acc + l.len())
     }
 
+    /// Get records in the correct order and shards with renewed shard iterator ids.
+    ///
+    /// Each lineage is processed in the correct order (parent shard is processed before the
+    /// children), and lineages without any releationships are processed concurrently.
+    ///
+    /// Returned records are sorted by its sequence number.
     pub async fn get_records<Client>(self, client: Arc<Client>) -> (Vec<Shard>, Vec<Record>)
     where
         Client: DynamodbClient + 'static,
@@ -141,6 +175,7 @@ impl Lineages {
         let mut shards: Vec<Shard> = vec![];
         let mut records: Vec<Record> = vec![];
 
+        // This buffer prevents mpsc::channel from panic when passed zero as its argument.
         let buf = cmp::max(1, self.shards_len());
         let (tx, mut rx) = mpsc::channel::<(Option<Shard>, Vec<Record>)>(buf);
 

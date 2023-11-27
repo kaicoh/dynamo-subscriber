@@ -108,16 +108,16 @@ where
     async fn get_all_shards(&self) -> Result<Vec<Shard>, Error> {
         let GetShardsOutput {
             mut shards,
-            mut next_shard_id,
+            mut last_shard_id,
         } = self.client.get_shards(&self.stream_arn, None).await?;
 
-        while next_shard_id.is_some() {
+        while last_shard_id.is_some() {
             let mut output = self
                 .client
-                .get_shards(&self.stream_arn, next_shard_id.take())
+                .get_shards(&self.stream_arn, last_shard_id.take())
                 .await?;
             shards.append(&mut output.shards);
-            next_shard_id = output.next_shard_id;
+            last_shard_id = output.last_shard_id;
         }
 
         Ok(shards)

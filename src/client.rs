@@ -129,11 +129,11 @@ impl DynamodbClient for Client {
                     .into_iter()
                     .filter_map(Shard::new)
                     .collect::<Vec<Shard>>();
-                let next_shard_id = description.last_evaluated_shard_id;
+                let last_shard_id = description.last_evaluated_shard_id;
 
                 GetShardsOutput {
                     shards,
-                    next_shard_id,
+                    last_shard_id,
                 }
             })
             .ok_or(Error::NotFoundStreamDescription(stream_arn))

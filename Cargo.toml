@@ -7,7 +7,7 @@ resolver = "2"
 [dependencies]
 async-recursion = "1.0.5"
 async-trait = "0.1.74"
-aws-config = { version = "1.0.1" }
+aws-config = "1.0.1"
 aws-sdk-dynamodb = "1.1.0"
 aws-sdk-dynamodbstreams = "1.1.0"
 thiserror = "1.0.50"

@@ -25,7 +25,9 @@ pub struct GetShardsOutput {
 pub struct GetRecordsOutput {
     /// The shard that the records are retrieved from and has renewed shard iterator
     /// for next `get_records` operation.
-    pub shard: Shard,
+    /// The shard will be None, if the renewed shard iterator is None. Because the None shard
+    /// iterator means no more records will be retrieved from the shard.
+    pub shard: Option<Shard>,
 
     /// The records that are retrieved by the operation.
     pub records: Vec<Record>,

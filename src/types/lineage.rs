@@ -100,7 +100,7 @@ impl Lineage {
         let (shard, records) = client
             .get_records(shard)
             .await
-            .map(|output| (Some(output.shard), output.records))
+            .map(|output| (output.shard, output.records))
             .unwrap_or_else(|err| {
                 error!("Unexpected error during getting records: {err}");
                 (None, vec![])
@@ -264,7 +264,7 @@ mod tests {
             _stream_arn: impl Into<String> + Send,
             _shard: Shard,
             _shard_iterator_type: ShardIteratorType,
-        ) -> Result<Shard, Error> {
+        ) -> Result<Option<Shard>, Error> {
             unimplemented!()
         }
 
@@ -306,7 +306,10 @@ mod tests {
     ) -> GetRecordsOutput {
         let shard = create_shard(shard_id, parent_shard_id);
         let records = create_records(seqs);
-        GetRecordsOutput { shard, records }
+        GetRecordsOutput {
+            shard: Some(shard),
+            records,
+        }
     }
 
     fn assert_include(shards: &[Shard], shard_id: &str) {

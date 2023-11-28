@@ -64,6 +64,7 @@ impl Client {
     }
 }
 
+/// An interface to receive DynamoDB Streams records.
 #[async_trait]
 pub trait DynamodbClient: Clone + Send + Sync {
     /// Return DynamoDB Stream Arn from DynamoDB
@@ -77,14 +78,15 @@ pub trait DynamodbClient: Clone + Send + Sync {
         exclusive_start_shard_id: Option<String>,
     ) -> Result<GetShardsOutput, Error>;
 
-    /// Return a [`Shard`](crate::types::Shard) that is the shard passed as an argument with shard
+    /// Return a [`Option<Shard>`](crate::types::Shard) that is the shard passed as an argument with shard
     /// iterator id.
+    /// Return None if the aws sdk operation fails due to `ResourceNotFound` of `TrimmedDataAccess`.
     async fn get_shard_with_iterator(
         &self,
         stream_arn: impl Into<String> + Send,
         shard: Shard,
         shard_iterator_type: ShardIteratorType,
-    ) -> Result<Shard, Error>;
+    ) -> Result<Option<Shard>, Error>;
 
     /// Return a vector of [`Record`](aws_sdk_dynamodbstreams::types::Record) and a
     /// [`Shard`](crate::types::Shard) with shard iterator id for next getting records call.
@@ -144,7 +146,7 @@ impl DynamodbClient for Client {
         stream_arn: impl Into<String> + Send,
         shard: Shard,
         shard_iterator_type: ShardIteratorType,
-    ) -> Result<Shard, Error> {
+    ) -> Result<Option<Shard>, Error> {
         let iterator = self
             .streams
             .get_shard_iterator()
@@ -184,7 +186,9 @@ fn empty_iterator(err: SdkError<GetShardIteratorError>) -> Result<Option<String>
         SdkError::ServiceError(e) => {
             let e = e.into_err();
             match e {
-                // Close shard if response is either ResourceNotFound or TrimmedDataAccess
+                // Retrun Ok(None) if the response is either `ResourceNotFound` or `TrimmedDataAccess`
+                // This means the shard will drop silently because returning None as shard iterator
+                // id results in returning Ok(None) from `get_shard_with_iterator` method.
                 ResourceNotFoundException(_) | TrimmedDataAccessException(_) => {
                     warn!("GetShardIterator operation failed due to {e}");
                     warn!("{:#?}", e);
@@ -204,8 +208,10 @@ fn empty_records(err: SdkError<GetRecordsError>) -> Result<SdkGetRecordsOutput, 
         SdkError::ServiceError(e) => {
             let e = e.into_err();
             match e {
-                // Close shard if response is one of ExpiredIterator, LimitExceeded
-                // ResourceNotFound and TrimmedDataAccess.
+                // Retrun Ok with default SdkGetRecordsOutput if the response is one of
+                // `ExpiredIterator`, `LimitExceeded`, `ResourceNotFound` and `TrimmedDataAccess`.
+                // This means the shard will drop silently because returning None as shard iterator
+                // id results in returning None as shard in GetRecordsOutput from `get_records` method.
                 ExpiredIteratorException(_)
                 | LimitExceededException(_)
                 | ResourceNotFoundException(_)

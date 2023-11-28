@@ -134,7 +134,9 @@ where
         shards: Vec<Shard>,
         shard_iterator_type: ShardIteratorType,
     ) -> Vec<Shard> {
-        let (tx, mut rx) = mpsc::channel::<Shard>(cmp::max(1, shards.len()));
+        // The buffer size must be positive (not zero).
+        let buf = cmp::max(1, shards.len());
+        let (tx, mut rx) = mpsc::channel::<Shard>(buf);
         let mut output: Vec<Shard> = vec![];
         let client = self.client();
 
@@ -145,19 +147,15 @@ where
             let shard_iterator_type = shard_iterator_type.clone();
 
             tokio::spawn(async move {
-                let shard = match client
-                    .get_shard_with_iterator(stream_arn, shard, shard_iterator_type)
-                    .await
-                {
-                    Ok(shard) => shard,
-                    Err(err) => {
-                        error!("Unexpected error during getting shard iterator: {err}");
-                        return;
-                    }
-                };
+                let result = client.get_shard_with_iterator(stream_arn, shard, shard_iterator_type);
+                let shard_opt = ok_or_return!(result.await, |err| {
+                    error!("Unexpected error during getting shard iterator: {err}");
+                });
 
-                if let Err(err) = tx.send(shard).await {
-                    error!("Unexpected error during sending shard: {err}");
+                if let Some(shard) = shard_opt {
+                    if let Err(err) = tx.send(shard).await {
+                        error!("Unexpected error during sending shard: {err}");
+                    }
                 }
             });
         }

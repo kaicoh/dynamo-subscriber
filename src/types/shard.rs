@@ -65,8 +65,14 @@ impl Shard {
         self.parent_shard_id.as_deref()
     }
 
-    /// Return [`Shard`] with passed shard iterator id.
-    pub fn set_iterator(self, iterator: Option<String>) -> Self {
-        Self { iterator, ..self }
+    /// Return [`Option<Shard>`] with passed shard iterator id.
+    /// Setting None as the shard iterator means the shard drops because None shard iterator will
+    /// get no records from the DynamoDB Table.
+    pub fn set_iterator(self, iterator: Option<String>) -> Option<Self> {
+        if iterator.is_some() {
+            Some(Self { iterator, ..self })
+        } else {
+            None
+        }
     }
 }

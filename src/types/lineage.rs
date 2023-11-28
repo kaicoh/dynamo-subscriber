@@ -458,9 +458,7 @@ mod tests {
         let lineages = Lineages::from(shards);
 
         let out3 = get_records_output("3", None, &["0012", "0004", "0008", "0001"]);
-
         let out4 = get_records_output("4", Some("3"), &["0003", "0010", "0011", "0009", "0006"]);
-
         let out5 = get_records_output("5", Some("3"), &["0002", "0005", "0013", "0007"]);
 
         let client = TestClient::new(vec![out3, out4, out5]);

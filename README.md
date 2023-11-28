@@ -8,7 +8,7 @@ Subscribe [DynamoDB Streams](https://docs.aws.amazon.com/amazondynamodb/latest/d
 
 ## Overview
 
-This library is a wrapper of Dynamodb Streams and enables using it as a tokio-stream. If you want to know what tokio-stream is and how to use it, see [this doc](https://crates.io/crates/tokio-stream).
+This library is a wrapper of DynamoDB Streams and enables using it as a tokio-stream. If you want to know what tokio-stream is and how to use it, see [this doc](https://crates.io/crates/tokio-stream).
 
 ## Example
 
